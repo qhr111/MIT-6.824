@@ -21,9 +21,6 @@ import (
 const (
 	MAP    = "MAP"
 	REDUCE = "REDUCE"
-	OK = "OK"
-	ERR = "ERR"
-	FINISH = "FINISH"
 )
 
 type Task struct {
@@ -44,26 +41,22 @@ type ExampleReply struct {
 }
 
 // Add your RPC definitions here.
-type getTaskArgs struct {
+type ApplyForTaskArgs  struct {
 	WorkerID      string
+
+	LastTaskType  string //上一个任务的类型, MAP or REDUCE, 为空代表没有任务
+	LastTaskIndex int    //上一个任务的索引
 }
 
-type getTaskReply struct {
+type ApplyForTaskReply struct {
 	TaskType     string //任务类型, MAP or REDUCE, 为空代表没有任务了
-	TaskID    int    //任务索引
+	TaskIndex    int    //任务索引
 	MapInputfile string //map任务的输入文件名, reduce任务为空
+	MapNum	  int    //map任务的总数, reduce任务为空
+	ReduceNum    int    //reduce任务的总数, map任务为空
 }
 
-type finishArgs struct {
-	TaskType  string //完成任务的类型, MAP or REDUCE
-	TaskID int    //完成任务的索引
-}
-
-type finishReply struct {
-	msg string
-}
-
-func tmpMapOutFile(worker string, mapIndex int, reduceIndex int) {
+func tmpMapOutFile(worker string, mapIndex int, reduceIndex int) string {
 	return fmt.Sprintf("tmp-worker-%s-%d-%d", worker, mapIndex, reduceIndex)
 }
 
@@ -85,6 +78,6 @@ func finalReduceOutFile(reduceIndex int) string {
 // Athena AFS doesn't support UNIX-domain sockets.
 func coordinatorSock() string {
 	s := "/var/tmp/5840-mr-"
-	s += G.Itoa(os.Getuid())
+	s += strconv.Itoa(os.Getuid())
 	return s
 }

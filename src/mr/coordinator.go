@@ -10,7 +10,6 @@ import (
 	"os"
 	"sync"
 	"time"
-	"strconv"
 )
 
 type Coordinator struct {
@@ -18,6 +17,8 @@ type Coordinator struct {
 	lock sync.Mutex
 
 	stage          string //当前阶段, MAP or REDUCE, 为空代表已完成可退出
+	nMap		   int
+	nReduce		   int
 	tasks          map[string]Task //入总任务
 	availableTasks chan Task //任务池
 }
@@ -34,90 +35,75 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 }
 
 func (c *Coordinator) transit() {
-	if c.stage == MAP && len(c.tasks) == 0 {
-		//进入REDUCE阶段
+	if c.stage == MAP {
+		log.Printf("All MAP tasks finished, transit to REDUCE stage\n")
 		c.stage = REDUCE
-		//生成REDUCE任务放入任务池
-		//先合并相同key的intermediate文件
-		intermediate := []mr.KeyValue{}
-		for _, filename := range os.Args[2:] {
-			file, err := os.Open(filename)
-			if err != nil {
-				log.Fatalf("cannot open %v", filename)
+
+		//生成Reduce任务放入任务池
+		for i := 0; i < c.nReduce; i++ {
+			task := Task{
+				Type:  REDUCE,
+				Index: i,
 			}
-			content, err := ioutil.ReadAll(file)
-			if err != nil {
-				log.Fatalf("cannot read %v", filename)
-			}
-			file.Close()
-			kva := mapf(filename, string(content))
-			intermediate = append(intermediate, kva...) //...表示把kva切片的所有元素添加到intermediate切片中
-		}
-
-		//
-		// a big difference from real MapReduce is that all the
-		// intermediate data is in one place, intermediate[],
-		// rather than being partitioned into NxM buckets.
-		//
-
-		sort.Sort(ByKey(intermediate))
-
-		oname := "mr-out-0"
-		ofile, _ := os.Create(oname)
-
-		//
-		// call Reduce on each distinct key in intermediate[],
-		// and print the result to mr-out-0.
-		//
-		i := 0
-		for i < len(intermediate) {
-			j := i + 1
-			for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
-				j++
-			}
-			values := []string{} //{}表示初始化为空切片
-			// 把相同key的value都放到values切片中
-			for k := i; k < j; k++ {
-				values = append(values, intermediate[k].Value)
-			}
-
-func (c *Coordinator) getTask(args *ApplyForArgs, reply *ApplyForReply) error {
-	//如何标识这个task完成了?
-	if args.LastTaskType != "" {
-		// 记录Worker的上一个Task已经运行完成
-		c.lock.Lock()
-
-		lastTaskID = GenTaskID(args.LastTaskType, args.LastTaskIndex)
-
-		if task, exists := c.tasks[lastTaskID]; exists && task.WorkerID == args.WorkerID {
-			//判断该Task 是否仍属于该Worker, 如果已经被重新分配, 进入后续的新task分配过程(因为可能超时了)
-			if args.LastTaskType == MAP {
-				//如何处理MAP
-			} else if args.LastTaskType == REDUCE {
-				//如何处理REDUCE
-			}
-
-			delete(c.tasks, lastTaskID)
-			if len(c.tasks) == 0 {
-				c.transit()
-			}
-		}
-		c.loc.Unlock()
+			c.tasks[GenTaskID(task.Type, task.Index)] = task
+			c.availableTasks <- task
+		}	
+	}else if c.stage == REDUCE {
+		log.Printf("All REDUCE tasks finished, transit to FINISH stage\n")
+		c.stage = ""
+		close(c.availableTasks) //关闭任务池, 让申请任务的worker退出
 	}
-	//获取一个可用的task并返回
-	task, ok := <-availableTasks
-	if !ok { //chanle关闭,MAP任务已完成,  通知worker退出
-		log.Printf("channel close!\n")
+
+
+}
+
+func (c *Coordinator) ApplyForTask(args *ApplyForTaskArgs, reply *ApplyForTaskReply) error {
+	 
+	if args.LastTaskType != "" {
+		//非第一个请求, 记录上一个请求完成
+		c.lock.Lock()
+		defer c.lock.Unlock()
+		LastTaskType := GenTaskID(args.LastTaskType, args.LastTaskIndex)
+		//判断这个task是否已经被重新分配了， 如果是的话则跳过， 进入后续的流程
+		if task, exists := c.tasks[LastTaskType]; exists && task.WorkerID == args.WorkerID {
+			log.Printf("Mark %s task %v from worker %v as finished\n", args.LastTaskType, args.LastTaskIndex, args.WorkerID)
+		}
+		if args.LastTaskType == "MAP" {
+			//map任务完成
+			//将这个task生成的中间产物变成最终产物，这么做的目的是为了反正重传导致的冲突
+			for ri := 0; ri < c.nReduce; ri++ {
+				//有nReduce个桶，生成了nReduce个中间map文件
+				err := os.Rename(tmpMapOutFile(args.WorkerID, args.LastTaskIndex, ri), finalMapOutFile(args.LastTaskIndex, ri))
+				if err != nil {
+					log.Fatalf("Failed to rename tmp map output file %s to final file %s: %v", tmpMapOutFile(args.WorkerID, args.LastTaskIndex, ri), finalMapOutFile(args.LastTaskIndex, ri), err)
+				}
+			}
+		}else if LastTaskType == "REDUCE" {
+			//reduce任务完成
+			err := os.Rename(tmpReduceOutFile(args.WorkerID, args.LastTaskIndex), finalReduceOutFile(args.LastTaskIndex))
+			if err != nil {
+				log.Fatalf("Failed to rename tmp reduce output file %s to final file %s: %v", tmpReduceOutFile(args.WorkerID, args.LastTaskIndex), finalReduceOutFile(args.LastTaskIndex), err)
+			}
+		}
+
+		//当前阶段所有Task已完成， 进入下一阶段
+		delete(c.tasks, LastTaskType)
+		if len(c.tasks) == 0 {
+			c.transit()
+		}
+
+	}
+
+	task, ok := <-c.availableTasks
+	if !ok {
 		return nil
 	}
 	c.lock.Lock()
 	defer c.lock.Unlock()
-
+	log.Printf("Assign %s task %v to worker %v\n", task.Type, task.Index, args.WorkerID)
 	task.WorkerID = args.WorkerID
-	//Add什么意思?
 	task.Deadline = time.Now().Add(10 * time.Second)
-	c.tasks[GenTaskID(task.Type, task.Index)] = task
-
+	c.tasks[GenTaskID(task.Type, task.Index)] = task //记录Task分配的WorkerID和Deadline
 	reply.TaskType = task.Type
 	reply.TaskIndex = task.Index
 	reply.MapInputfile = task.MapInputfile
@@ -127,19 +113,6 @@ func (c *Coordinator) getTask(args *ApplyForArgs, reply *ApplyForReply) error {
 	return nil
 }
 
-func (c *Coordinator) MapNotify(request *MapNotifyArgs, reply *MapNotifyReply) error {
-	//worker通知这个文件已经处理完了
-	c.files_lock.Lock()
-	defer c.files_lock.Unlock()
-	//找到这个文件对应的下标
-	c.files[request.idx] = 1 //标记为已完成
-	reply.state = "ok"
-	return nil
-}
-
-func (c *Coordinator) ReduceHandler(args *ReduceArgs, reply *ReduceReply) error {
-	return nil
-}
 
 // start a thread that listens for RPCs from worker.go
 func (c *Coordinator) server() {
@@ -166,7 +139,7 @@ func (c *Coordinator) Done() bool {
 	return ret
 }
 
-func GenTaskID(t string, index int) {
+func GenTaskID(t string, index int) string{
 	return fmt.Sprintf("%s-%d", t, index)
 }
 
@@ -189,11 +162,29 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 			Index:        i,
 			MapInputfile: file,
 		}
-		c.tasks[GenTaskID(task.Type, Task.Index)] = task
+		c.tasks[GenTaskID(task.Type, task.Index)] = task
 		c.availableTasks <- task
 	}
 
 	log.Printf("coordinator start\n")
 	c.server()
+	
+	//启动Task自动回收过程
+	go func(){
+		for {
+			time.Sleep(time.Second * 5)
+			c.lock.Lock()
+			for _, task := range c.tasks {
+				if task.WorkerID != "" && time.Now().After(task.Deadline) {
+					//这个任务已经分配给某个worker了, 但是超过截止时间还没完成, 说明这个worker挂了或者死掉了, 需要重新分配这个任务
+					log.Printf("Fount time-out %s task %d from worker %s, reassign it\n", task.Type, task.Index, task.WorkerID)
+					task.WorkerID = ""
+					c.availableTasks <- task
+				}
+			}
+			c.lock.Unlock()
+		}
+	}()
+
 	return &c
 }
