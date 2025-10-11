@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"6.5840/kvsrv1/rpc"
-	"6.5840/kvtest1"
+	kvtest "6.5840/kvtest1"
 )
 
 // Test Put with a single client and a reliable network
@@ -136,6 +136,7 @@ func TestUnreliableNet(t *testing.T) {
 
 	retried := false
 	for try := 0; try < NTRY; try++ {
+		// 100次尝试, 每次使用递增的版本号,但是版本号在一次中是不变的
 		for i := 0; true; i++ {
 			if err := ts.PutJson(ck, "k", i, rpc.Tversion(try), 0); err != rpc.ErrMaybe {
 				if i > 0 && err != rpc.ErrVersion {
@@ -151,10 +152,12 @@ func TestUnreliableNet(t *testing.T) {
 			t.Fatalf("Wrong version %d expect %d", ver, try+1)
 		}
 		if v != 0 {
+			//期望v = 0, 因为只有第一次Put可能成功
 			t.Fatalf("Wrong value %d expect %d", v, 0)
 		}
 	}
 	if !retried {
+		//必须至少发生一次err = ErrMaybe
 		t.Fatalf("Clerk.Put never returned ErrMaybe")
 	}
 

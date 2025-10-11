@@ -2,7 +2,7 @@ package main
 
 //
 // simple sequential MapReduce.
-//
+// 所有的中间结果都保存在内存中,不涉及分布式计算, 相当于单机
 // go run mrsequential.go wc.so pg*.txt
 //
 
@@ -15,7 +15,7 @@ import "io/ioutil"
 import "sort"
 
 // for sorting by key.
-type ByKey []mr.KeyValue
+type ByKey []mr.KeyValue //定义一个新类型,底层类型是mr.KeyValue切片
 
 // for sorting by key.
 func (a ByKey) Len() int           { return len(a) }
@@ -47,7 +47,7 @@ func main() {
 		}
 		file.Close()
 		kva := mapf(filename, string(content))
-		intermediate = append(intermediate, kva...)
+		intermediate = append(intermediate, kva...) //...表示把kva切片的所有元素添加到intermediate切片中
 	}
 
 	//
@@ -71,7 +71,7 @@ func main() {
 		for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
 			j++
 		}
-		values := []string{}
+		values := []string{} //{}表示初始化为空切片
 		for k := i; k < j; k++ {
 			values = append(values, intermediate[k].Value)
 		}
@@ -97,7 +97,7 @@ func loadPlugin(filename string) (func(string, string) []mr.KeyValue, func(strin
 	if err != nil {
 		log.Fatalf("cannot find Map in %v", filename)
 	}
-	mapf := xmapf.(func(string, string) []mr.KeyValue)
+	mapf := xmapf.(func(string, string) []mr.KeyValue) //这里是GO的类型断言,把xmapf转换成具体的函数类型
 	xreducef, err := p.Lookup("Reduce")
 	if err != nil {
 		log.Fatalf("cannot find Reduce in %v", filename)

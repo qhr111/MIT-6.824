@@ -28,6 +28,15 @@ type PutReply struct {
 	Err Err
 }
 
+type GetVersionArgs struct {
+	Key string
+}
+
+type GetVersionReply struct {
+	Version Tversion
+	Err     Err
+}
+
 type GetArgs struct {
 	Key string
 }
@@ -37,4 +46,3 @@ type GetReply struct {
 	Version Tversion
 	Err     Err
 }
-

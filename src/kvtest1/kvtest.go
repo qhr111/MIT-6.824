@@ -44,6 +44,7 @@ type IClerkMaker interface {
 }
 
 type Test struct {
+	//嵌入字段, 方便test直接访问这个config
 	*tester.Config
 	t          *testing.T
 	oplog      *OpLog
@@ -159,6 +160,9 @@ func (ts *Test) SpawnClientsAndWait(nclnt int, t time.Duration, fn Fclnt) []Clnt
 	}
 	time.Sleep(t)
 	for i := 0; i < nclnt; i++ {
+		//向 done 这个 channel 发送一个空结构体（struct{}{}）。
+		//这样做通常用于通知或信号，表示某个事件已经发生（比如让协程停止或继续）。
+		//在这里，它用于通知所有客户端可以结束操作。
 		done <- struct{}{}
 	}
 	rs := make([]ClntRes, nclnt)
@@ -205,6 +209,7 @@ type EntryV struct {
 
 // Keep trying until we get one put succeeds while other clients
 // tryint to put to the same key
+// 这种做法相当于把竞态处理放到了客户端, 客户端需要自己处理竞态问题
 func (ts *Test) OnePut(me int, ck IKVClerk, key string, ver rpc.Tversion) (rpc.Tversion, bool) {
 	for true {
 		err := ts.PutJson(ck, key, EntryV{me, ver}, ver, me)

@@ -2,10 +2,9 @@ package kvsrv
 
 import (
 	"6.5840/kvsrv1/rpc"
-	"6.5840/kvtest1"
-	"6.5840/tester1"
+	kvtest "6.5840/kvtest1"
+	tester "6.5840/tester1"
 )
-
 
 type Clerk struct {
 	clnt   *tester.Clnt
@@ -30,7 +29,16 @@ func MakeClerk(clnt *tester.Clnt, server string) kvtest.IKVClerk {
 // arguments. Additionally, reply must be passed as a pointer.
 func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 	// You will have to modify this function.
-	return "", 0, rpc.ErrNoKey
+	var args rpc.GetArgs
+	var reply rpc.GetReply
+	args.Key = key
+	// 一直重试,直到成功
+	for {
+		ok := ck.clnt.Call(ck.server, "KVServer.Get", &args, &reply)
+		if ok {
+			return reply.Value, reply.Version, reply.Err
+		}
+	}
 }
 
 // Put updates key with value only if the version in the
@@ -52,5 +60,31 @@ func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 // arguments. Additionally, reply must be passed as a pointer.
 func (ck *Clerk) Put(key, value string, version rpc.Tversion) rpc.Err {
 	// You will have to modify this function.
-	return rpc.ErrNoKey
+
+	var pargs rpc.PutArgs
+	pargs.Key = key
+	pargs.Value = value
+	pargs.Version = version
+	var preply rpc.PutReply
+
+	firstTry := true
+	for {
+		ok := ck.clnt.Call(ck.server, "KVServer.Put", &pargs, &preply)
+		if ok {
+			// RPC 成功，检查服务器返回的错误
+			if preply.Err == rpc.OK || preply.Err == rpc.ErrNoKey {
+				return preply.Err
+			} else if preply.Err == rpc.ErrVersion {
+				if firstTry {
+					// 第一次尝试返回 ErrVersion，说明版本不匹配
+					return rpc.ErrVersion
+				} else {
+					// 重试时返回 ErrVersion，可能第一次已经成功了
+					return rpc.ErrMaybe
+				}
+			}
+		}
+		// RPC 失败或其他错误，继续重试
+		firstTry = false
+	}
 }
