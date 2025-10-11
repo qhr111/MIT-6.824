@@ -72,9 +72,11 @@ func main() {
 			j++
 		}
 		values := []string{} //{}表示初始化为空切片
+		// 把相同key的value都放到values切片中
 		for k := i; k < j; k++ {
 			values = append(values, intermediate[k].Value)
 		}
+		// 执行reduce函数
 		output := reducef(intermediate[i].Key, values)
 
 		// this is the correct format for each line of Reduce output.

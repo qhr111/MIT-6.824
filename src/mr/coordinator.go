@@ -10,6 +10,7 @@ import (
 	"os"
 	"sync"
 	"time"
+	"strconv"
 )
 
 type Coordinator struct {
@@ -17,10 +18,8 @@ type Coordinator struct {
 	lock sync.Mutex
 
 	stage          string //当前阶段, MAP or REDUCE, 为空代表已完成可退出
-	nMap           int    // map任务数
-	nReduce        int    // reduce任务数
-	tasks          map[string]Task
-	availableTasks chan Task
+	tasks          map[string]Task //入总任务
+	availableTasks chan Task //任务池
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -34,7 +33,55 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	return nil
 }
 
-func (c *Coordinator) ApplyHandler(args *ApplyForArgs, reply *ApplyForReply) error {
+func (c *Coordinator) transit() {
+	if c.stage == MAP && len(c.tasks) == 0 {
+		//进入REDUCE阶段
+		c.stage = REDUCE
+		//生成REDUCE任务放入任务池
+		//先合并相同key的intermediate文件
+		intermediate := []mr.KeyValue{}
+		for _, filename := range os.Args[2:] {
+			file, err := os.Open(filename)
+			if err != nil {
+				log.Fatalf("cannot open %v", filename)
+			}
+			content, err := ioutil.ReadAll(file)
+			if err != nil {
+				log.Fatalf("cannot read %v", filename)
+			}
+			file.Close()
+			kva := mapf(filename, string(content))
+			intermediate = append(intermediate, kva...) //...表示把kva切片的所有元素添加到intermediate切片中
+		}
+
+		//
+		// a big difference from real MapReduce is that all the
+		// intermediate data is in one place, intermediate[],
+		// rather than being partitioned into NxM buckets.
+		//
+
+		sort.Sort(ByKey(intermediate))
+
+		oname := "mr-out-0"
+		ofile, _ := os.Create(oname)
+
+		//
+		// call Reduce on each distinct key in intermediate[],
+		// and print the result to mr-out-0.
+		//
+		i := 0
+		for i < len(intermediate) {
+			j := i + 1
+			for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+				j++
+			}
+			values := []string{} //{}表示初始化为空切片
+			// 把相同key的value都放到values切片中
+			for k := i; k < j; k++ {
+				values = append(values, intermediate[k].Value)
+			}
+
+func (c *Coordinator) getTask(args *ApplyForArgs, reply *ApplyForReply) error {
 	//如何标识这个task完成了?
 	if args.LastTaskType != "" {
 		// 记录Worker的上一个Task已经运行完成
@@ -111,11 +158,11 @@ func (c *Coordinator) server() {
 // main/mrcoordinator.go calls Done() periodically to find out
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
-
 	ret := false
-
 	// Your code here.
-
+	if c.stage == "REDUCE" && len(c.tasks) == 0 {
+		ret = true
+	}
 	return ret
 }
 
