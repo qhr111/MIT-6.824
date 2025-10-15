@@ -9,6 +9,7 @@ package raft
 import (
 	//	"bytes"
 
+	"log"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -51,8 +52,8 @@ type Raft struct {
 }
 
 type logEntry struct {
-	term    int    // 该logentry所属的任期
-	command string // 状态机要执行的命令
+	Term    int    // 该logentry所属的任期
+	Command string // 状态机要执行的命令
 }
 
 // return currentTerm and whether this server
@@ -132,18 +133,18 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 // field names must start with capital letters!
 type RequestVoteArgs struct {
 	// Your data here (3A, 3B).
-	term         int
-	candidateId  int
-	lastLogIndex int
-	lastLogTerm  int
+	Term         int
+	CandidateId  int
+	LastLogIndex int
+	LastLogTerm  int
 }
 
 // example RequestVote RPC reply structure.
 // field names must start with capital letters!
 type RequestVoteReply struct {
 	// Your data here (3A).
-	term        int
-	voteGranted bool
+	Term        int
+	VoteGranted bool
 }
 
 // example RequestVote RPC handler.
@@ -155,15 +156,16 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	//否则拒绝
 
 	// 假设raftState的第一个int是currentTerm， 第二个int是voteFor
+	log.Printf("RequestVote is called")
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	if args.term < rf.currentTerm {
-		reply.term = rf.currentTerm
-		reply.voteGranted = false
+	if args.Term < rf.currentTerm {
+		reply.Term = rf.currentTerm
+		reply.VoteGranted = false
 		return
-	} else if (args.term > rf.currentTerm) || (args.term == rf.currentTerm && (rf.voteFor == -1 || rf.voteFor == args.candidateId) && args.lastLogIndex >= rf.lastApplied) {
-		reply.term = rf.currentTerm
-		reply.voteGranted = true
+	} else if (args.Term > rf.currentTerm) || (args.Term == rf.currentTerm && (rf.voteFor == -1 || rf.voteFor == args.CandidateId) && args.LastLogIndex >= rf.lastApplied) {
+		reply.Term = rf.currentTerm
+		reply.VoteGranted = true
 		return
 	}
 }
@@ -218,14 +220,15 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// Your code here (3A, 3B).
 	// 如果对方的term小于自己的， 直接拒绝
 	// 需要一致性检查， 判断本server在prevLogIndex索引处是否已有日志，有了的话是否term一致，不一致则拒绝
+	log.Printf("AppendEntries is called")
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
 	//重置定时器ticker
 	rf.checkAlive = true
 
-	if args.term < rf.currentTerm || len(rf.log) <= args.prevLogIndex || rf.log[args.prevLogIndex].term != args.prevLogTerm {
-		if rf.log[args.prevLogIndex].term != args.prevLogTerm {
+	if args.term < rf.currentTerm || len(rf.log) <= args.prevLogIndex || rf.log[args.prevLogIndex].Term != args.prevLogTerm {
+		if rf.log[args.prevLogIndex].Term != args.prevLogTerm {
 			// 日志不一致， 删除本地冲突的日志及其之后的所有日志
 			rf.log = rf.log[:args.prevLogIndex]
 		}
@@ -298,6 +301,8 @@ func (rf *Raft) killed() bool {
 func election(rf *Raft) {
 	// Your code here (3A).
 	// 作为follower， 如果在一个选举周期内没有收到leader的心跳包， 就开始选举
+	log.Printf("Server %d start election\n", rf.me)
+
 	rf.state = CANDIDATE
 	rf.currentTerm += 1
 	rf.voteFor = rf.me
@@ -307,20 +312,22 @@ func election(rf *Raft) {
 	for i := range rf.peers {
 		if i != rf.me {
 			var args RequestVoteArgs
-			args.term = rf.currentTerm
-			args.candidateId = rf.me
-			args.lastLogIndex = len(rf.log) - 1
-			args.lastLogTerm = rf.log[len(rf.log)-1].term
+			args.Term = rf.currentTerm
+			args.CandidateId = rf.me
+			args.LastLogIndex = len(rf.log) - 1
+			args.LastLogTerm = rf.log[len(rf.log)-1].Term
 
 			var reply RequestVoteReply
 			go func(i int, args RequestVoteArgs, reply *RequestVoteReply) {
 				//可能丢包， 要重试？
 				for {
+					log.Printf("Server %d start send RequestVote to server %d\n", rf.me, i)
 					ok := rf.sendRequestVote(i, &args, reply)
+					log.Printf("Server %d receive reply from server %d, ok: %t\n", rf.me, i, ok)
 					if ok {
 						rf.mu.Lock()
 						defer rf.mu.Unlock()
-						if reply.voteGranted {
+						if reply.VoteGranted {
 							voteCount += 1
 							if voteCount > len(rf.peers)/2 && rf.state == CANDIDATE {
 								// 赢得选举， 成为leader
@@ -333,10 +340,10 @@ func election(rf *Raft) {
 								break
 							}
 						} else {
-							if reply.term > rf.currentTerm {
+							if reply.Term > rf.currentTerm {
 								// 对方的term更大， 自己变成follower
 								rf.state = FOLLOWER
-								rf.currentTerm = reply.term
+								rf.currentTerm = reply.Term
 								rf.voteFor = -1
 								break
 							}
@@ -386,7 +393,7 @@ func (rf *Raft) sendHeartBeats() {
 		args.term = rf.currentTerm
 		args.leaderId = rf.me
 		args.prevLogIndex = len(rf.log) - 1
-		args.prevLogTerm = rf.log[len(rf.log)-1].term
+		args.prevLogTerm = rf.log[len(rf.log)-1].Term
 		args.entries = []logEntry{}
 		args.leaderCommit = rf.commitIndex
 
@@ -419,6 +426,14 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.checkAlive = false
 
 	// Your initialization code here (3A, 3B, 3C).
+	rf.currentTerm = 0
+	rf.voteFor = -1
+	rf.log = make([]logEntry, 1) // log的第一个元素不存储任何有用信息， 只是为了让log的索引从1开始
+	rf.log[0] = logEntry{
+		Term:    0,
+		Command: "",
+	}
+
 	rf.commitIndex = 0
 	rf.lastApplied = 0
 
