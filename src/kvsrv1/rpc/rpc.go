@@ -10,6 +10,7 @@ const (
 
 	// Err returned by Clerk only
 	ErrMaybe = "ErrMaybe"
+	UNKNOWN  = "UNKNOWN"
 
 	// For future kvraft lab
 	ErrWrongLeader = "ErrWrongLeader"

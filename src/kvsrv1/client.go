@@ -60,31 +60,34 @@ func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 // arguments. Additionally, reply must be passed as a pointer.
 func (ck *Clerk) Put(key, value string, version rpc.Tversion) rpc.Err {
 	// You will have to modify this function.
+	// 实现put-mostly-once语义
 
 	var pargs rpc.PutArgs
 	pargs.Key = key
 	pargs.Value = value
 	pargs.Version = version
 	var preply rpc.PutReply
-
-	firstTry := true
+	first := true
 	for {
+
 		ok := ck.clnt.Call(ck.server, "KVServer.Put", &pargs, &preply)
 		if ok {
-			// RPC 成功，检查服务器返回的错误
-			if preply.Err == rpc.OK || preply.Err == rpc.ErrNoKey {
+			switch preply.Err {
+			case rpc.OK, rpc.ErrNoKey:
 				return preply.Err
-			} else if preply.Err == rpc.ErrVersion {
-				if firstTry {
-					// 第一次尝试返回 ErrVersion，说明版本不匹配
+			case rpc.ErrVersion:
+				if first {
+					// 第一次尝试就返回ErrVersion, 说明Put肯定没有成功
 					return rpc.ErrVersion
 				} else {
-					// 重试时返回 ErrVersion，可能第一次已经成功了
+					// 不是第一次尝试就返回ErrMaybe, 说明可能成功了
 					return rpc.ErrMaybe
 				}
 			}
+		} else {
+			// RPC 失败， 继续重试
 		}
-		// RPC 失败或其他错误，继续重试
-		firstTry = false
+		first = false
 	}
+
 }

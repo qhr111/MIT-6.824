@@ -2,14 +2,14 @@ package lock
 
 import (
 	"fmt"
-	//	"log"
+	// "log"
 	"strconv"
 	"testing"
 	"time"
 
-	"6.5840/kvsrv1"
+	kvsrv "6.5840/kvsrv1"
 	"6.5840/kvsrv1/rpc"
-	"6.5840/kvtest1"
+	kvtest "6.5840/kvtest1"
 )
 
 const (
@@ -19,6 +19,7 @@ const (
 )
 
 func oneClient(t *testing.T, me int, ck kvtest.IKVClerk, done chan struct{}) kvtest.ClntRes {
+	//本客户端申请了一个锁对象， 只是个对象，并不是直接拿到了锁资源！
 	lk := MakeLock(ck, "l")
 	ck.Put("l0", "", 0)
 	for i := 1; true; i++ {
@@ -48,6 +49,7 @@ func oneClient(t *testing.T, me int, ck kvtest.IKVClerk, done chan struct{}) kvt
 			time.Sleep(10 * time.Millisecond)
 
 			err = ck.Put("l0", "", ver+1)
+			// 此时还一直持有锁， 下一个版本号只能是ver + 1
 			if !(err == rpc.OK || err == rpc.ErrMaybe) {
 				t.Fatalf("%d: put failed %v", me, err)
 			}

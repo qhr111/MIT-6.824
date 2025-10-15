@@ -6,7 +6,7 @@ import (
 
 	"6.5840/kvsrv1/rpc"
 	"6.5840/labrpc"
-	"6.5840/tester1"
+	tester "6.5840/tester1"
 )
 
 const Debug = false
@@ -59,7 +59,6 @@ func (kv *KVServer) Get(args *rpc.GetArgs, reply *rpc.GetReply) {
 // args.Version is 0, and returns ErrNoKey otherwise.
 func (kv *KVServer) Put(args *rpc.PutArgs, reply *rpc.PutReply) {
 	// Your code here.
-	//读的时候不加锁, 写的时候加锁
 	kv.mu.Lock()
 	//检查是否版本一致
 	defer kv.mu.Unlock()
@@ -74,9 +73,11 @@ func (kv *KVServer) Put(args *rpc.PutArgs, reply *rpc.PutReply) {
 		reply.Err = rpc.ErrNoKey
 	case ok && args.Version != p.version:
 		reply.Err = rpc.ErrVersion
-	default: // ok && args.Version == p.version
+	case ok && args.Version == p.version:
 		kv.kv[args.Key] = Pair{value: args.Value, version: args.Version + 1}
 		reply.Err = rpc.OK
+	default: //
+		log.Fatalf("Put unexpected case: %+v, %+v", args, p)
 	}
 }
 

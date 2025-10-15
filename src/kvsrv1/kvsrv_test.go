@@ -86,6 +86,7 @@ func TestMemPutManyClientsReliable(t *testing.T) {
 
 	// force allocation of ends for server in each client
 	for i := 0; i < NCLIENT; i++ {
+		//插一堆没用的模拟压力
 		if err := cks[i].Put("k", "", 1); err != rpc.ErrNoKey {
 			t.Fatalf("Put failed %v", err)
 		}

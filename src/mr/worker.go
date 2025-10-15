@@ -2,17 +2,20 @@ package mr
 
 import (
 	"fmt"
-	"os"
-	"strconv"
-	"log"
-	"net/rpc"
-	"hash/fnv"
 	"io/ioutil"
-	"strings"
 	"sort"
+	"strings"
 )
+import "log"
+import "os"
+import "strconv"
+import "net/rpc"
+import "hash/fnv"
 
+
+//
 // Map functions return a slice of KeyValue.
+//
 type KeyValue struct {
 	Key   string
 	Value string
@@ -24,15 +27,20 @@ func (a ByKey) Len() int           { return len(a) }
 func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
+//
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
+//
 func ihash(key string) int {
 	h := fnv.New32a()
 	h.Write([]byte(key))
 	return int(h.Sum32() & 0x7fffffff)
 }
 
+
+//
 // main/mrworker.go calls this function.
+//
 func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 	// 单机运行，直接使用 PID 作为 Worker ID，方便 debug
 	id := strconv.Itoa(os.Getpid())
@@ -59,16 +67,16 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 		log.Printf("Received %s task %d from coordinator", reply.TaskType, reply.TaskIndex)
 		if reply.TaskType == MAP {
 			// 读取输入数据
-			file, err := os.Open(reply.MapInputfile)
+			file, err := os.Open(reply.MapInputFile)
 			if err != nil {
-				log.Fatalf("Failed to open map input file %s: %e", reply.MapInputfile, err)
+				log.Fatalf("Failed to open map input file %s: %e", reply.MapInputFile, err)
 			}
 			content, err := ioutil.ReadAll(file)
 			if err != nil {
-				log.Fatalf("Failed to read map input file %s: %e", reply.MapInputfile, err)
+				log.Fatalf("Failed to read map input file %s: %e", reply.MapInputFile, err)
 			}
 			// 传递输入数据至 MAP 函数，得到中间结果
-			kva := mapf(reply.MapInputfile, string(content))
+			kva := mapf(reply.MapInputFile, string(content))
 			// 按 Key 的 Hash 值对中间结果进行分桶
 			hashedKva := make(map[int][]KeyValue)
 			for _, kv := range kva {
@@ -138,34 +146,11 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 	log.Printf("Worker %s exit\n", id)
 }
 
-// the RPC argument and reply types are defined in rpc.go.
-func CallExample() {
-
-	// declare an argument structure.
-	args := ExampleArgs{}
-
-	// fill in the argument(s).
-	args.X = 99
-
-	// declare a reply structure.
-	reply := ExampleReply{}
-
-	// send the RPC request, wait for the reply.
-	// the "Coordinator.Example" tells the
-	// receiving server that we'd like to call
-	// the Example() method of struct Coordinator.
-	ok := call("Coordinator.Example", &args, &reply)
-	if ok {
-		// reply.Y should be 100.
-		fmt.Printf("reply.Y %v\n", reply.Y)
-	} else {
-		fmt.Printf("call failed!\n")
-	}
-}
-
+//
 // send an RPC request to the coordinator, wait for the response.
 // usually returns true.
 // returns false if something goes wrong.
+//
 func call(rpcname string, args interface{}, reply interface{}) bool {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
 	sockname := coordinatorSock()

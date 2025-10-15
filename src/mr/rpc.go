@@ -13,47 +13,43 @@ import (
 	"time"
 )
 
-//
-// example to show how to declare the arguments
-// and reply for an RPC.
-//
-
 const (
-	MAP    = "MAP"
+	MAP = "MAP"
 	REDUCE = "REDUCE"
 )
 
 type Task struct {
 	Type         string // MAP or REDUCE
 	Index        int
-	MapInputfile string // map任务的输入文件名
+	MapInputFile string
 
-	WorkerID string    //分配给哪个worker
-	Deadline time.Time //任务截止时间
+	WorkerID string
+	Deadline time.Time
 }
 
-type ExampleArgs struct {
-	X int
-}
+type ApplyForTaskArgs struct {
+	WorkerID string
 
-type ExampleReply struct {
-	Y int
-}
-
-// Add your RPC definitions here.
-type ApplyForTaskArgs  struct {
-	WorkerID      string
-
-	LastTaskType  string //上一个任务的类型, MAP or REDUCE, 为空代表没有任务
-	LastTaskIndex int    //上一个任务的索引
+	LastTaskType  string
+	LastTaskIndex int
 }
 
 type ApplyForTaskReply struct {
-	TaskType     string //任务类型, MAP or REDUCE, 为空代表没有任务了
-	TaskIndex    int    //任务索引
-	MapInputfile string //map任务的输入文件名, reduce任务为空
-	MapNum	  int    //map任务的总数, reduce任务为空
-	ReduceNum    int    //reduce任务的总数, map任务为空
+	TaskType     string // MAP or REDUCE
+	TaskIndex    int
+	MapInputFile string
+	MapNum       int
+	ReduceNum    int
+}
+
+// Cook up a unique-ish UNIX-domain socket name
+// in /var/tmp, for the coordinator.
+// Can't use the current directory since
+// Athena AFS doesn't support UNIX-domain sockets.
+func coordinatorSock() string {
+	s := "/var/tmp/824-mr-"
+	s += strconv.Itoa(os.Getuid())
+	return s
 }
 
 func tmpMapOutFile(worker string, mapIndex int, reduceIndex int) string {
@@ -70,14 +66,4 @@ func tmpReduceOutFile(worker string, reduceIndex int) string {
 
 func finalReduceOutFile(reduceIndex int) string {
 	return fmt.Sprintf("mr-out-%d", reduceIndex)
-}
-
-// Cook up a unique-ish UNIX-domain socket name
-// in /var/tmp, for the coordinator.
-// Can't use the current directory since
-// Athena AFS doesn't support UNIX-domain sockets.
-func coordinatorSock() string {
-	s := "/var/tmp/5840-mr-"
-	s += strconv.Itoa(os.Getuid())
-	return s
 }
